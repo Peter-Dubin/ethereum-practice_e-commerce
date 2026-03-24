@@ -85,8 +85,9 @@ echo "NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS" >> ../stableco
 # Only update contract addresses, don't overwrite Stripe keys
 if [ -f ../stablecoin/compra-stablecoin/.env.local ]; then
     # Update only the contract address and wallet private key, keep Stripe keys
-    sed -i 's/^NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=.*/NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS/' ../stablecoin/compra-stablecoin/.env.local 2>/dev/null || echo "NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS" >> ../stablecoin/compra-stablecoin/.env.local
-    sed -i 's/^WALLET_PRIVATE_KEY=.*/WALLET_PRIVATE_KEY=$PRIVATE_KEY/' ../stablecoin/compra-stablecoin/.env.local 2>/dev/null || echo "WALLET_PRIVATE_KEY=$PRIVATE_KEY" >> ../stablecoin/compra-stablecoin/.env.local
+    # Use double quotes for variable expansion
+    sed -i "s|^NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=.*|NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS|" ../stablecoin/compra-stablecoin/.env.local 2>/dev/null || echo "NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS" >> ../stablecoin/compra-stablecoin/.env.local
+    sed -i "s|^WALLET_PRIVATE_KEY=.*|WALLET_PRIVATE_KEY=$PRIVATE_KEY|" ../stablecoin/compra-stablecoin/.env.local 2>/dev/null || echo "WALLET_PRIVATE_KEY=$PRIVATE_KEY" >> ../stablecoin/compra-stablecoin/.env.local
 else
     # File doesn't exist, create it with all keys (first time setup)
     echo "NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS" > ../stablecoin/compra-stablecoin/.env.local

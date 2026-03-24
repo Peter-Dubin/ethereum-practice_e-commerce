@@ -55,6 +55,7 @@ export default function PurchaseForm({ walletAddress, onSuccess }: PurchaseFormP
       setSuccess('Payment successful! Tokens will be minted shortly.');
       
       // Call mint API
+      console.log('[PurchaseForm] Calling mint API for wallet:', walletAddress, 'amount:', parseFloat(eurAmount) * 1000000);
       const mintResponse = await fetch('/api/mint-tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -64,11 +65,16 @@ export default function PurchaseForm({ walletAddress, onSuccess }: PurchaseFormP
         })
       });
 
+      console.log('[PurchaseForm] Mint response status:', mintResponse.status);
       if (!mintResponse.ok) {
+        const errorData = await mintResponse.json();
+        console.error('[PurchaseForm] Mint error response:', errorData);
         throw new Error('Failed to mint tokens');
       }
 
-      const { transactionHash } = await mintResponse.json();
+      const mintData = await mintResponse.json();
+      console.log('[PurchaseForm] Mint success:', mintData);
+      const { transactionHash } = mintData;
       setSuccess(`Purchase successful! ${eurAmount} EURT minted.`);
       onSuccess?.(transactionHash, eurAmount);
       

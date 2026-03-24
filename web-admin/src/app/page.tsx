@@ -7,11 +7,12 @@ const ECOMMERCE_ABI = [
   'function registerCompany(string name, string taxId) returns (uint256)',
   'function addProduct(uint256 companyId, string name, string description, uint256 price, uint256 stock, string ipfsImageHash) returns (uint256)',
   'function getCompany(uint256 companyId) view returns (tuple(uint256 companyId, string name, address companyAddress, string taxId, bool isActive, address owner))',
-  'function getCompanyIdByOwner(address owner) view returns (uint256)',
+  'function ownerToCompanyId(address owner) view returns (uint256)',
   'function getCompanyProductIds(uint256 companyId) view returns (uint256[])',
   'function getProduct(uint256 productId) view returns (tuple(uint256 productId, uint256 companyId, string name, string description, uint256 price, uint256 stock, string ipfsImageHash, bool isActive))',
   'function getCompanyInvoices(uint256 companyId) view returns (uint256[])',
-  'function getInvoice(uint256 invoiceId) view returns (tuple(uint256 invoiceId, uint256 companyId, address customerAddress, uint256 totalAmount, uint256 timestamp, bool isPaid, bytes32 paymentTxHash, string invoiceNumber))'
+  'function getInvoice(uint256 invoiceId) view returns (tuple(uint256 invoiceId, uint256 companyId, address customerAddress, uint256 totalAmount, uint256 timestamp, bool isPaid, bytes32 paymentTxHash, string invoiceNumber))',
+  'event CompanyRegistered(uint256 indexed companyId, string name, address indexed owner, string taxId)'
 ];
 
 declare global {
@@ -98,9 +99,25 @@ export default function AdminPage() {
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, provider);
 
       // Get company ID for this owner
-      const cid = await contract.getCompanyIdByOwner(walletAddress);
+      console.log('[Admin] Looking up company for wallet:', walletAddress);
+      const cidFromContract = await contract.ownerToCompanyId(walletAddress);
+      console.log('[Admin] Raw result from contract:', cidFromContract);
+      console.log('[Admin] Result type:', typeof cidFromContract);
+      console.log('[Admin] Result toString():', cidFromContract?.toString());
+      console.log('[Admin] Result valueOf():', cidFromContract?.valueOf());
       
-      if (cid && cid > 0n) {
+      // Convert to bigint safely
+      const cid = BigInt(cidFromContract || 0);
+      console.log('[Admin] Converted company ID:', cid.toString());
+      
+      // Check if company ID is valid (non-zero)
+      if (cid === 0n) {
+        console.log('[Admin] No company found for this wallet (cid === 0)');
+        setCompanyId(null);
+        setProducts([]);
+        setInvoices([]);
+      } else {
+        console.log('[Admin] Found company ID:', cid.toString());
         setCompanyId(cid);
         
         // Load products
@@ -143,13 +160,43 @@ export default function AdminPage() {
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
 
+      console.log('[Admin] Registering company:', companyName, 'with taxId:', taxId);
       const tx = await contract.registerCompany(companyName, taxId);
-      await tx.wait();
+      console.log('[Admin] Transaction sent:', tx.hash);
+      
+      const receipt = await tx.wait();
+      console.log('[Admin] Transaction confirmed in block:', receipt.blockNumber);
+
+      // Parse the CompanyRegistered event to get the company ID
+      const companyRegisteredEvent = receipt.logs?.map((log: any) => {
+        try {
+          return contract.interface.parseLog({ topics: log.topics, data: log.data });
+        } catch {
+          return null;
+        }
+      }).find((event: any) => event?.name === 'CompanyRegistered');
+
+      let newCompanyId: bigint | null = null;
+      if (companyRegisteredEvent) {
+        newCompanyId = companyRegisteredEvent.args.companyId;
+        console.log('[Admin] Company registered with ID:', newCompanyId?.toString());
+      }
 
       setSuccess('Company registered successfully!');
-      loadCompanyData();
-    } catch (err) {
-      console.error('Error registering company:', err);
+      
+      // Set the company ID directly if we got it from the event
+      if (newCompanyId && newCompanyId > 0n) {
+        setCompanyId(newCompanyId);
+        // Load products/invoices
+        loadCompanyData();
+      } else {
+        // Fall back to reloading
+        setTimeout(() => {
+          loadCompanyData();
+        }, 1000);
+      }
+    } catch (err: any) {
+      console.error('[Admin] Error registering company:', err);
       setError(err instanceof Error ? err.message : 'Failed to register company');
     } finally {
       setIsLoading(false);
@@ -252,22 +299,22 @@ export default function AdminPage() {
             <h2 className="text-xl font-semibold mb-4">Register Your Company</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Company Name</label>
                 <input
                   type="text"
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400"
                   placeholder="My Store"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tax ID</label>
+                <label className="block text-sm font-medium text-gray-900 mb-1">Tax ID</label>
                 <input
                   type="text"
                   value={taxId}
                   onChange={(e) => setTaxId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400"
                   placeholder="A12345678"
                 />
               </div>
