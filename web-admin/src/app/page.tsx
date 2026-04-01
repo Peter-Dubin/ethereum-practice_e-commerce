@@ -91,37 +91,67 @@ export default function AdminPage() {
   };
 
   const loadCompanyData = async () => {
-    if (!walletAddress || !ecommerceAddress) return;
+    if (!walletAddress || !ecommerceAddress) {
+      console.error('[Admin] Missing walletAddress or ecommerceAddress:', { walletAddress, ecommerceAddress });
+      return;
+    }
 
     setIsLoading(true);
     try {
       const provider = new ethers.BrowserProvider(window.ethereum!);
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, provider);
 
+      // DEBUG: Log network info
+      const network = await provider.getNetwork();
+      console.log('[Admin] Network chainId:', network.chainId);
+      console.log('[Admin] Contract address:', ecommerceAddress);
+      console.log('[Admin] Wallet address:', walletAddress);
+
+      // Check if contract has code
+      const code = await provider.getCode(ecommerceAddress);
+      console.log('[Admin] Contract code length:', code.length);
+      if (code === '0x') {
+        console.error('[Admin] No contract code at address:', ecommerceAddress);
+        setError('Contract not deployed on the current network');
+        setIsLoading(false);
+        return;
+      }
+
       // Get company ID for this owner
       console.log('[Admin] Looking up company for wallet:', walletAddress);
-      const cidFromContract = await contract.ownerToCompanyId(walletAddress);
-      console.log('[Admin] Raw result from contract:', cidFromContract);
-      console.log('[Admin] Result type:', typeof cidFromContract);
-      console.log('[Admin] Result toString():', cidFromContract?.toString());
-      console.log('[Admin] Result valueOf():', cidFromContract?.valueOf());
+      let cidFromContract = 0n;
       
-      // Convert to bigint safely
-      const cid = BigInt(cidFromContract || 0);
-      console.log('[Admin] Converted company ID:', cid.toString());
-      
+      try {
+        const rawData = await provider.call({
+          to: ecommerceAddress,
+          data: contract.interface.encodeFunctionData('ownerToCompanyId', [walletAddress])
+        });
+        console.log('[Admin] Raw data from contract:', rawData);
+        
+        if (rawData !== '0x' && rawData !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+          // Decode as uint256
+          cidFromContract = ethers.AbiCoder.defaultAbiCoder().decode(['uint256'], rawData)[0];
+        }
+      } catch (callError) {
+        // If the call fails (no contract, network error, etc.), treat as no company
+        console.warn('[Admin] Error calling contract, assuming no company:', callError);
+        cidFromContract = 0n;
+      }
+
+      console.log('[Admin] Company ID:', cidFromContract.toString());
+
       // Check if company ID is valid (non-zero)
-      if (cid === 0n) {
+      if (cidFromContract === 0n) {
         console.log('[Admin] No company found for this wallet (cid === 0)');
         setCompanyId(null);
         setProducts([]);
         setInvoices([]);
       } else {
-        console.log('[Admin] Found company ID:', cid.toString());
-        setCompanyId(cid);
+        console.log('[Admin] Found company ID:', cidFromContract.toString());
+        setCompanyId(cidFromContract);
         
         // Load products
-        const productIds = await contract.getCompanyProductIds(cid);
+        const productIds = await contract.getCompanyProductIds(cidFromContract);
         const loadedProducts: Product[] = [];
         for (const pid of productIds) {
           const product = await contract.getProduct(pid);
@@ -130,7 +160,7 @@ export default function AdminPage() {
         setProducts(loadedProducts);
 
         // Load invoices
-        const invoiceIds = await contract.getCompanyInvoices(cid);
+        const invoiceIds = await contract.getCompanyInvoices(cidFromContract);
         const loadedInvoices: Invoice[] = [];
         for (const iid of invoiceIds) {
           const invoice = await contract.getInvoice(iid);
@@ -140,6 +170,8 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error('Error loading company data:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setError('Failed to load company data: ' + message);
     } finally {
       setIsLoading(false);
     }

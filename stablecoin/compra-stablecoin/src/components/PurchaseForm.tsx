@@ -55,13 +55,13 @@ export default function PurchaseForm({ walletAddress, onSuccess }: PurchaseFormP
       setSuccess('Payment successful! Tokens will be minted shortly.');
       
       // Call mint API
-      console.log('[PurchaseForm] Calling mint API for wallet:', walletAddress, 'amount:', parseFloat(eurAmount) * 1000000);
+      console.log('[PurchaseForm] Calling mint API for wallet:', walletAddress, 'amount:', parseFloat(eurAmount));
       const mintResponse = await fetch('/api/mint-tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           walletAddress,
-          amount: parseFloat(eurAmount) * 1000000 // Convert to cents (6 decimals)
+          amount: parseFloat(eurAmount) // No decimal conversion needed - using 0 decimals
         })
       });
 

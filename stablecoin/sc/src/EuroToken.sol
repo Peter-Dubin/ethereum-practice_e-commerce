@@ -7,8 +7,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @title EuroToken - ERC20 Stablecoin representing Euros
 /// @notice This token is pegged 1:1 to EUR (1 EURT = 1 EUR)
 contract EuroToken is ERC20, Ownable {
-    /// @notice Initial supply of 1,000,000 tokens (in cents with 6 decimals)
-    uint256 public constant INITIAL_SUPPLY = 1_000_000 * 10**6;
+    /// @notice Initial supply of 1,000,000 tokens
+    uint256 public constant INITIAL_SUPPLY = 1_000_000;
 
     /// @notice Emitted when tokens are minted
     event TokensMinted(address indexed to, uint256 amount);
@@ -22,10 +22,10 @@ contract EuroToken is ERC20, Ownable {
     }
 
     /// @notice Returns the number of decimals used for token amounts
-    /// @dev Uses 6 decimals to represent euro cents
-    /// @return The number of decimals (6)
+    /// @dev Uses 0 decimals - 1 token = 1 EUR
+    /// @return The number of decimals (0)
     function decimals() public pure override returns (uint8) {
-        return 6;
+        return 0;
     }
 
     /// @notice Mints new tokens to a specified address

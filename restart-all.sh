@@ -34,7 +34,16 @@ echo "Starting Anvil blockchain..."
 cd stablecoin/sc
 anvil --accounts 10 --chain-id 31337 --host 0.0.0.0 &
 ANVIL_PID=$!
-sleep 3
+
+# Wait for Anvil to be ready before deploying
+echo "Waiting for Anvil to start..."
+for i in {1..30}; do
+    if curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' http://localhost:8545 > /dev/null 2>&1; then
+        echo "Anvil is ready!"
+        break
+    fi
+    sleep 1
+done
 
 # Get Anvil account private key (first account) - use default anvil key
 export PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -43,7 +52,7 @@ echo "Deploying EuroToken..."
 echo "Current directory: $(pwd)"
 # Already in stablecoin/sc from line 27, no need to cd again
 ls -la
-forge script script/DeployEuroToken.s.sol --rpc-url http://localhost:8545 --broadcast --private-key $PRIVATE_KEY --skip-size-check
+forge script script/DeployEuroToken.s.sol --rpc-url http://localhost:8545 --broadcast --private-key $PRIVATE_KEY --disable-code-size-limit
 
 # Get EuroToken address from broadcast output
 EURO_TOKEN_ADDRESS=$(cat broadcast/DeployEuroToken.s.sol/*/run-latest.json 2>/dev/null | grep -i '"contractAddress"' | head -1 | grep -o '0x[0-9a-fA-F]*' | head -1)
@@ -54,12 +63,21 @@ fi
 
 echo "EuroToken deployed at: $EURO_TOKEN_ADDRESS"
 
+# Verify deployment was successful - check contract has code
+echo "Verifying EuroToken deployment..."
+CONTRACT_CODE=$(cast code $EURO_TOKEN_ADDRESS --rpc-url http://localhost:8545 2>/dev/null)
+if [ -z "$CONTRACT_CODE" ] || [ "$CONTRACT_CODE" = "0x" ]; then
+    echo "ERROR: EuroToken contract not found at $EURO_TOKEN_ADDRESS - no code at this address"
+    exit 1
+fi
+echo "EuroToken contract verified at $EURO_TOKEN_ADDRESS"
+
 # Deploy E-commerce contract
 echo "Deploying E-commerce contract..."
 cd ../../sc-ecommerce
 # Export the EuroToken address as an environment variable for the script
 export EUROTOKEN_ADDRESS=$EURO_TOKEN_ADDRESS
-forge script script/DeployEcommerce.s.sol --rpc-url http://localhost:8545 --broadcast --private-key $PRIVATE_KEY --skip-size-check
+forge script script/DeployEcommerce.s.sol --rpc-url http://localhost:8545 --broadcast --private-key $PRIVATE_KEY --disable-code-size-limit
 
 # Get E-commerce address
 ECOMMERCE_ADDRESS=$(cat broadcast/DeployEcommerce.s.sol/*/run-latest.json 2>/dev/null | grep -i '"contractAddress"' | head -1 | grep -o '0x[0-9a-fA-F]*' | head -1)
