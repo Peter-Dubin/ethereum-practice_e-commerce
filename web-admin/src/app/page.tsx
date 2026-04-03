@@ -64,6 +64,7 @@ export default function AdminPage() {
   const [productStock, setProductStock] = useState('');
 
   const ecommerceAddress = process.env.NEXT_PUBLIC_ECOMMERCE_CONTRACT_ADDRESS;
+  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545';
 
   useEffect(() => {
     if (walletAddress && ecommerceAddress) {
@@ -98,17 +99,19 @@ export default function AdminPage() {
 
     setIsLoading(true);
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum!);
-      const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, provider);
+      // Use local provider for development
+      const localProvider = new ethers.JsonRpcProvider(rpcUrl);
+      const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, localProvider);
 
       // DEBUG: Log network info
-      const network = await provider.getNetwork();
+      const network = await localProvider.getNetwork();
       console.log('[Admin] Network chainId:', network.chainId);
+      console.log('[Admin] Using RPC:', rpcUrl);
       console.log('[Admin] Contract address:', ecommerceAddress);
       console.log('[Admin] Wallet address:', walletAddress);
 
       // Check if contract has code
-      const code = await provider.getCode(ecommerceAddress);
+      const code = await localProvider.getCode(ecommerceAddress);
       console.log('[Admin] Contract code length:', code.length);
       if (code === '0x') {
         console.error('[Admin] No contract code at address:', ecommerceAddress);
@@ -122,7 +125,7 @@ export default function AdminPage() {
       let cidFromContract = 0n;
       
       try {
-        const rawData = await provider.call({
+        const rawData = await localProvider.call({
           to: ecommerceAddress,
           data: contract.interface.encodeFunctionData('ownerToCompanyId', [walletAddress])
         });
@@ -188,8 +191,9 @@ export default function AdminPage() {
     setSuccess(null);
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum!);
-      const signer = await provider.getSigner();
+      // Use local provider for development
+      const localProvider = new ethers.JsonRpcProvider(rpcUrl);
+      const signer = await localProvider.getSigner();
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
 
       console.log('[Admin] Registering company:', companyName, 'with taxId:', taxId);
@@ -246,8 +250,9 @@ export default function AdminPage() {
     setSuccess(null);
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum!);
-      const signer = await provider.getSigner();
+      // Use local provider for development
+      const localProvider = new ethers.JsonRpcProvider(rpcUrl);
+      const signer = await localProvider.getSigner();
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
 
       // Price in cents (6 decimals)

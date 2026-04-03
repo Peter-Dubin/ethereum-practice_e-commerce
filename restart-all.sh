@@ -3,8 +3,8 @@
 # Blockchain E-Commerce Deployment Script
 # This script starts all services for local development
 
-# Don't exit on errors - continue starting apps even if deployment has warnings
-# set -e
+# Exit on errors - stop script if any command fails
+set -e
 
 # Setup Node.js version manager (nvm) if available
 export NVM_DIR="$HOME/.nvm"
@@ -77,11 +77,20 @@ echo "Deploying E-commerce contract..."
 cd ../../sc-ecommerce
 # Export the EuroToken address as an environment variable for the script
 export EUROTOKEN_ADDRESS=$EURO_TOKEN_ADDRESS
-forge script script/DeployEcommerce.s.sol --rpc-url http://localhost:8545 --broadcast --private-key $PRIVATE_KEY --disable-code-size-limit
+forge script script/DeployEcommerce.s.sol --rpc-url http://localhost:8545 --broadcast --private-key $PRIVATE_KEY
 
 # Get E-commerce address
 ECOMMERCE_ADDRESS=$(cat broadcast/DeployEcommerce.s.sol/*/run-latest.json 2>/dev/null | grep -i '"contractAddress"' | head -1 | grep -o '0x[0-9a-fA-F]*' | head -1)
 echo "E-commerce deployed at: $ECOMMERCE_ADDRESS"
+
+# Verify E-commerce deployment - check contract has code
+echo "Verifying E-commerce deployment..."
+CONTRACT_CODE=$(cast code $ECOMMERCE_ADDRESS --rpc-url http://localhost:8545 2>/dev/null)
+if [ -z "$CONTRACT_CODE" ] || [ "$CONTRACT_CODE" = "0x" ]; then
+    echo "ERROR: E-commerce contract not found at $ECOMMERCE_ADDRESS - no code at this address"
+    exit 1
+fi
+echo "E-commerce contract verified at $ECOMMERCE_ADDRESS"
 
 # Update environment files
 echo "Updating environment files..."
@@ -89,10 +98,12 @@ echo "Updating environment files..."
 # Update web-admin
 echo "NEXT_PUBLIC_ECOMMERCE_CONTRACT_ADDRESS=$ECOMMERCE_ADDRESS" > ../web-admin/.env.local
 echo "NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS" >> ../web-admin/.env.local
+echo "NEXT_PUBLIC_RPC_URL=http://localhost:8545" >> ../web-admin/.env.local
 
 # Update web-customer
 echo "NEXT_PUBLIC_ECOMMERCE_CONTRACT_ADDRESS=$ECOMMERCE_ADDRESS" > ../web-customer/.env.local
 echo "NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS=$EURO_TOKEN_ADDRESS" >> ../web-customer/.env.local
+echo "NEXT_PUBLIC_RPC_URL=http://localhost:8545" >> ../web-customer/.env.local
 echo "NEXT_PUBLIC_PAYMENT_GATEWAY_URL=http://localhost:6002" >> ../web-customer/.env.local
 
 # Update payment gateway

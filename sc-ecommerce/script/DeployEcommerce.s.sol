@@ -20,6 +20,10 @@ contract DeployEcommerce is Script {
         
         vm.stopBroadcast();
         
+        // Verify deployment was successful - check contract has code
+        bytes memory code = address(ecommerce).code;
+        require(code.length > 0, "Ecommerce deployment failed: no code at address");
+        
         // Log the deployed address
         console2.log("Ecommerce deployed to:", address(ecommerce));
         console2.log("EuroToken address:", euroTokenAddress);
