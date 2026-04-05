@@ -39,7 +39,6 @@ function PaymentContent() {
     }
     setStatus('ready');
   }, [merchantAddress, amount]);
-
   const connectWallet = async () => {
     if (!window.ethereum) {
       setError('MetaMask not installed');
@@ -47,7 +46,7 @@ function PaymentContent() {
     }
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.BrowserProvider(window.ethereum as any);
       const accounts = await provider.send('eth_requestAccounts', []);
       
       if (accounts.length > 0) {
@@ -66,7 +65,8 @@ function PaymentContent() {
     setError(null);
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      if (!window.ethereum) throw new Error('MetaMask not installed');
+      const provider = new ethers.BrowserProvider(window.ethereum as any);
       const signer = await provider.getSigner();
 
       const euroTokenAddress = process.env.NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS;
@@ -76,8 +76,8 @@ function PaymentContent() {
         throw new Error('Contract addresses not configured');
       }
 
-      // Get amount in smallest units (6 decimals for EURT)
-      const amountWei = ethers.parseUnits(amount, 6);
+      // Get amount in smallest units (0 decimals for EURT)
+      const amountWei = ethers.parseUnits(amount, 0);
 
       // Check balance
       const tokenContract = new ethers.Contract(euroTokenAddress, ERC20_ABI, provider);
@@ -92,13 +92,13 @@ function PaymentContent() {
       
       if (allowance < amountWei) {
         // Approve tokens
-        const approveTx = await tokenContract.connect(signer).approve(ecommerceAddress, amountWei);
+        const approveTx = await (tokenContract.connect(signer) as any).approve(ecommerceAddress, amountWei);
         await approveTx.wait();
       }
 
       // Process payment through ecommerce contract
       const ecommerceContract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
-      const payTx = await ecommerceContract.processDirectPayment(
+      const payTx = await (ecommerceContract as any).processDirectPayment(
         invoiceId,
         walletAddress,
         amountWei
@@ -130,7 +130,8 @@ function PaymentContent() {
 
   const formatAmount = (amt: string) => {
     try {
-      return ethers.formatUnits(amt, 6);
+      // EURT has 0 decimals
+      return ethers.formatUnits(amt, 0);
     } catch {
       return amt;
     }
@@ -175,21 +176,21 @@ function PaymentContent() {
           )}
 
           <div className="space-y-4 mb-6">
-            <div className="flex justify-between items-center py-2 border-b">
-              <span className="text-gray-600">Invoice</span>
-              <span className="font-medium">{invoice || 'N/A'}</span>
+            <div className="flex justify-between items-center py-2 border-b border-gray-200">
+              <span className="text-gray-900 font-semibold">Invoice</span>
+              <span className="font-bold text-blue-800">{invoice || 'N/A'}</span>
             </div>
-            <div className="flex justify-between items-center py-2 border-b">
-              <span className="text-gray-600">Date</span>
-              <span className="font-medium">{date || 'N/A'}</span>
+            <div className="flex justify-between items-center py-2 border-b border-gray-200">
+              <span className="text-gray-900 font-semibold">Date</span>
+              <span className="font-bold text-blue-800">{date || 'N/A'}</span>
             </div>
-            <div className="flex justify-between items-center py-2 border-b">
-              <span className="text-gray-600">Merchant</span>
-              <span className="font-mono text-sm">{formatAddress(merchantAddress)}</span>
+            <div className="flex justify-between items-center py-2 border-b border-gray-200">
+              <span className="text-gray-900 font-semibold">Merchant</span>
+              <span className="font-mono text-sm font-bold text-blue-800">{formatAddress(merchantAddress)}</span>
             </div>
             <div className="flex justify-between items-center py-4">
-              <span className="text-lg font-semibold">Amount</span>
-              <span className="text-2xl font-bold text-blue-600">€{formatAmount(amount)}</span>
+              <span className="text-lg font-bold text-gray-900">Amount</span>
+              <span className="text-2xl font-black text-blue-700">€{formatAmount(amount)}</span>
             </div>
           </div>
 
@@ -219,7 +220,7 @@ function PaymentContent() {
                 </div>
               )}
 
-              <p className="mt-4 text-xs text-center text-gray-500">
+              <p className="mt-4 text-xs text-center text-gray-700 font-medium">
                 Payment will be processed on the blockchain. Make sure you have sufficient EURT balance.
               </p>
             </>

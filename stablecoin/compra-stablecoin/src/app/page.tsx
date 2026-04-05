@@ -20,12 +20,23 @@ export default function Home() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-12">
-          <h2 className="text-4xl font-extrabold text-gray-900 dark:text-white mb-4">
+          <h2 className="text-4xl font-extrabold text-gray-900 dark:text-white mb-2">
             Buy EuroToken (EURT)
           </h2>
-          <p className="text-lg text-gray-600 dark:text-gray-400">
+          <p className="text-sm font-mono text-gray-500 dark:text-gray-400 mb-4">
+            {process.env.NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS}
+          </p>
+          <p className="text-lg text-gray-600 dark:text-gray-400 mb-8">
             Purchase EuroTokens using your credit card and shop on our blockchain-powered e-commerce platform
           </p>
+          
+          <a
+            href={`http://localhost:6002/?merchant_address=${process.env.NEXT_PUBLIC_ECOMMERCE_CONTRACT_ADDRESS || '0xe7f1725e7734ce288f8367e1bb143e90bb3f0512'}&amount=10&invoice=3&date=${new Date().toISOString().split('T')[0]}&redirect=http://localhost:6001`}
+            className="inline-flex items-center px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-colors shadow-lg"
+          >
+            <span className="mr-2">🔧</span>
+            Test Payment Gateway (10 EURT)
+          </a>
         </div>
 
         {walletAddress ? (
@@ -53,9 +64,9 @@ export default function Home() {
               Connect Your Wallet
             </h3>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Please connect your MetaMask wallet to purchase EuroTokens
+              Please connect your MetaMask wallet at the top right to purchase EuroTokens
             </p>
-            <WalletConnect onAddressChange={setWalletAddress} />
+            {/* The second Connect button was removed to avoid duplication and state sync issues */}
           </div>
         )}
 

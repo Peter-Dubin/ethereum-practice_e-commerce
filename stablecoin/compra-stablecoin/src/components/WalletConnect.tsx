@@ -14,7 +14,9 @@ export default function WalletConnect({ onAddressChange }: WalletConnectProps) {
   const [error, setError] = useState<string | null>(null);
 
   const connectWallet = async () => {
+    console.log('[WalletConnect] Button clicked');
     if (!window.ethereum) {
+      console.error('[WalletConnect] MetaMask not installed');
       setError('MetaMask not installed');
       return;
     }
@@ -23,8 +25,10 @@ export default function WalletConnect({ onAddressChange }: WalletConnectProps) {
     setError(null);
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      console.log('[WalletConnect] Requesting accounts...');
+      const provider = new ethers.BrowserProvider(window.ethereum as any);
       const accounts = await provider.send('eth_requestAccounts', []);
+      console.log('[WalletConnect] Accounts received:', accounts);
       
       if (accounts.length > 0) {
         const walletAddress = accounts[0];
@@ -36,7 +40,7 @@ export default function WalletConnect({ onAddressChange }: WalletConnectProps) {
         setBalance(ethers.formatEther(balance));
       }
     } catch (err) {
-      console.error('Error connecting wallet:', err);
+      console.error('[WalletConnect] Error connecting wallet:', err);
       setError('Failed to connect wallet');
     } finally {
       setIsConnecting(false);
