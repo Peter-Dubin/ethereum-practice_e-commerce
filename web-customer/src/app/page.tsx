@@ -121,7 +121,8 @@ export default function CustomerPage() {
 
     try {
       const provider = new ethers.BrowserProvider(window.ethereum!);
-      const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, provider);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
       
       const [cartItems, total] = await contract.getCart();
       setCart(cartItems);

@@ -552,4 +552,9 @@ contract Ecommerce is Ownable {
     function getBalance(address account) external view returns (uint256) {
         return euroToken.balanceOf(account);
     }
+
+    /// @notice Fallback function to gracefully handle unknown calls (e.g. MetaMask checking for decimals())
+    /// This prevents "execution reverted" errors in local node logs
+    fallback() external payable {}
+    receive() external payable {}
 }
