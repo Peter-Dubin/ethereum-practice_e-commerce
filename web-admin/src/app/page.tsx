@@ -4,16 +4,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 
 const ECOMMERCE_ABI = [
-  'function registerCompany(string name, string taxId) returns (uint256)',
+  'function registerCompany(string name, string description) returns (uint256)',
   'function addProduct(uint256 companyId, string name, string description, uint256 price, uint256 stock, string ipfsImageHash) returns (uint256)',
-  'function getCompany(uint256 companyId) view returns (tuple(uint256 companyId, string name, address companyAddress, string taxId, bool isActive, address owner))',
+  'function getCompany(uint256 companyId) view returns (tuple(uint256 companyId, string name, address companyAddress, string description, bool isActive, address owner))',
   'function ownerToCompanyId(address owner) view returns (uint256)',
   'function companyCount() view returns (uint256)',
   'function getCompanyProductIds(uint256 companyId) view returns (uint256[])',
   'function getProduct(uint256 productId) view returns (tuple(uint256 productId, uint256 companyId, string name, string description, uint256 price, uint256 stock, string ipfsImageHash, bool isActive))',
   'function getCompanyInvoices(uint256 companyId) view returns (uint256[])',
   'function getInvoice(uint256 invoiceId) view returns (tuple(uint256 invoiceId, uint256 companyId, address customerAddress, uint256 totalAmount, uint256 timestamp, bool isPaid, bytes32 paymentTxHash, string invoiceNumber))',
-  'event CompanyRegistered(uint256 indexed companyId, string name, address indexed owner, string taxId)'
+  'event CompanyRegistered(uint256 indexed companyId, string name, address indexed owner, string description)'
 ];
 
 declare global {
@@ -48,7 +48,7 @@ interface Company {
   companyId: bigint;
   name: string;
   companyAddress: string;
-  taxId: string;
+  description: string;
   isActive: boolean;
 }
 
@@ -68,7 +68,7 @@ export default function AdminPage() {
 
   // Forms
   const [companyName, setCompanyName] = useState('');
-  const [taxId, setTaxId] = useState('');
+  const [companyDescription, setCompanyDescription] = useState('');
   const [productName, setProductName] = useState('');
   const [productDescription, setProductDescription] = useState('');
   const [productPrice, setProductPrice] = useState('');
@@ -87,9 +87,9 @@ export default function AdminPage() {
           companyId: company.companyId,
           name: company.name,
           companyAddress: company.companyAddress,
-          taxId: company.taxId,
+          description: company.description,
           isActive: company.isActive,
-          owner: company.owner // Assuming Ecommerce.sol Company struct has owner or getCompany returns it
+          owner: company.owner
         } as any);
       }
       setAllCompanies(companies);
@@ -100,7 +100,6 @@ export default function AdminPage() {
 
   const loadMerchantData = async (contract: ethers.Contract, cid: bigint) => {
     try {
-      // Load products
       const productIds = await contract.getCompanyProductIds(cid);
       const loadedProducts: Product[] = [];
       for (const pid of productIds) {
@@ -109,7 +108,6 @@ export default function AdminPage() {
       }
       setProducts(loadedProducts);
 
-      // Load invoices
       const invoiceIds = await contract.getCompanyInvoices(cid);
       const loadedInvoices: Invoice[] = [];
       for (const iid of invoiceIds) {
@@ -135,10 +133,8 @@ export default function AdminPage() {
       const provider = new ethers.JsonRpcProvider(rpcUrl);
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, provider);
 
-      // 1. Load All Companies for the list view
       await loadAllCompanies(contract);
 
-      // 2. Check if user is connected
       if (window.ethereum) {
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
         if (accounts.length > 0) {
@@ -158,7 +154,6 @@ export default function AdminPage() {
     init();
   }, [init]);
 
-  // When selected company changes, reload dashboard data
   useEffect(() => {
     if (selectedCompanyId && ecommerceAddress) {
       const provider = new ethers.JsonRpcProvider(rpcUrl);
@@ -177,7 +172,6 @@ export default function AdminPage() {
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       if (accounts.length > 0) {
         setWalletAddress(accounts[0]);
-        // Refresh data
         init();
       }
     } catch (err) {
@@ -199,7 +193,7 @@ export default function AdminPage() {
   };
 
   const handleRegisterCompany = async () => {
-    if (!companyName || !taxId || !ecommerceAddress || !window.ethereum) {
+    if (!companyName || !companyDescription || !ecommerceAddress || !window.ethereum) {
       setError('Please fill in all fields and ensure MetaMask is connected');
       return;
     }
@@ -213,8 +207,8 @@ export default function AdminPage() {
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
 
-      console.log('[Admin] Registering company:', companyName, 'with taxId:', taxId);
-      const tx = await contract.registerCompany(companyName, taxId);
+      console.log('[Admin] Registering company:', companyName);
+      const tx = await contract.registerCompany(companyName, companyDescription);
       console.log('[Admin] Transaction sent:', tx.hash);
       
       const receipt = await tx.wait();
@@ -222,11 +216,9 @@ export default function AdminPage() {
 
       setSuccess('Company registered successfully!');
       setCompanyName('');
-      setTaxId('');
+      setCompanyDescription('');
       
-      // Refresh state
       await init();
-      // Stay on list view as requested
       setView('companies_list');
     } catch (err: any) {
       console.error('[Admin] Error registering company:', err);
@@ -269,7 +261,6 @@ export default function AdminPage() {
       setProductPrice('');
       setProductStock('');
       
-      // Refresh data
       loadMerchantData(contract, selectedCompanyId);
     } catch (err) {
       console.error('Error adding product:', err);
@@ -389,6 +380,7 @@ export default function AdminPage() {
                   <tr className="border-b border-white/5 bg-white/[0.02]">
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">ID</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Company Name</th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Description</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Owner Address</th>
                     <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-right">Actions</th>
                   </tr>
@@ -403,6 +395,9 @@ export default function AdminPage() {
                             {c.name}
                           </span>
                         </td>
+                        <td className="px-6 py-5 text-sm text-gray-400 italic">
+                          {c.description && c.description.length > 50 ? `${c.description.slice(0, 50)}...` : c.description || 'No description'}
+                        </td>
                         <td className="px-6 py-5 text-sm font-mono text-gray-500">{formatAddress(c.companyAddress)}</td>
                         <td className="px-6 py-5 text-right">
                           <button 
@@ -416,7 +411,7 @@ export default function AdminPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={4} className="px-6 py-20 text-center text-gray-600 italic">
+                      <td colSpan={5} className="px-6 py-20 text-center text-gray-600 italic">
                         No companies registered yet
                       </td>
                     </tr>
@@ -453,13 +448,12 @@ export default function AdminPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Tax ID</label>
-                  <input
-                    type="text"
-                    value={taxId}
-                    onChange={(e) => setTaxId(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 transition-all"
-                    placeholder="e.g. US-12345678"
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">Description</label>
+                  <textarea
+                    value={companyDescription}
+                    onChange={(e) => setCompanyDescription(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500/50 transition-all h-32"
+                    placeholder="Describe your business and what you sell..."
                   />
                 </div>
                 <button

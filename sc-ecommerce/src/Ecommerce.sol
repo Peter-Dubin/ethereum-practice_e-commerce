@@ -16,7 +16,7 @@ contract Ecommerce is Ownable {
         uint256 companyId;
         string name;
         address companyAddress;
-        string taxId;
+        string description;
         bool isActive;
         address owner;
     }
@@ -26,14 +26,14 @@ contract Ecommerce is Ownable {
         uint256 indexed companyId,
         string name,
         address indexed companyAddress,
-        string taxId
+        string description
     );
 
     /// @notice Event emitted when a company is updated
     event CompanyUpdated(
         uint256 indexed companyId,
         string name,
-        string taxId,
+        string description,
         bool isActive
     );
 
@@ -167,7 +167,7 @@ contract Ecommerce is Ownable {
     // ============ Company Functions ============
 
     /// @notice Register a new company
-    function registerCompany(string memory name, string memory taxId) external returns (uint256) {
+    function registerCompany(string memory name, string memory description) external returns (uint256) {
         require(bytes(name).length > 0, "Company name cannot be empty");
         // require(ownerToCompanyId[msg.sender] == 0, "Owner already has a company");
 
@@ -178,14 +178,14 @@ contract Ecommerce is Ownable {
             companyId: newCompanyId,
             name: name,
             companyAddress: msg.sender,
-            taxId: taxId,
+            description: description,
             isActive: true,
             owner: msg.sender
         });
 
         ownerToCompanyId[msg.sender] = newCompanyId;
 
-        emit CompanyRegistered(newCompanyId, name, msg.sender, taxId);
+        emit CompanyRegistered(newCompanyId, name, msg.sender, description);
 
         return newCompanyId;
     }
@@ -197,16 +197,16 @@ contract Ecommerce is Ownable {
     }
 
     /// @notice Update company details
-    function updateCompany(uint256 companyId, string memory name, string memory taxId, bool isActive) external {
+    function updateCompany(uint256 companyId, string memory name, string memory description, bool isActive) external {
         require(companyId > 0 && companyId <= companyCount, "Company does not exist");
         require(companies[companyId].owner == msg.sender, "Not the company owner");
         
         Company storage company = companies[companyId];
         company.name = name;
-        company.taxId = taxId;
+        company.description = description;
         company.isActive = isActive;
 
-        emit CompanyUpdated(companyId, name, taxId, isActive);
+        emit CompanyUpdated(companyId, name, description, isActive);
     }
 
     // ============ Product Functions ============

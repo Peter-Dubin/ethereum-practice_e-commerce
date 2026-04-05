@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 
 const ECOMMERCE_ABI = [
   'function getAllProducts() view returns (tuple(uint256 productId, uint256 companyId, string name, string description, uint256 price, uint256 stock, string ipfsImageHash, bool isActive)[])',
-  'function getCompany(uint256 companyId) view returns (tuple(uint256 companyId, string name, address companyAddress, string taxId, bool isActive, address owner))',
+  'function getCompany(uint256 companyId) view returns (tuple(uint256 companyId, string name, address companyAddress, string description, bool isActive, address owner))',
   'function addToCart(uint256 productId, uint256 quantity)',
   'function getCart() view returns (tuple(uint256 productId, uint256 quantity, uint256 priceAtAdd)[] cartItems, uint256 total)',
   'function createInvoice(uint256 companyId) returns (uint256)',
@@ -59,6 +59,7 @@ export default function CustomerPage() {
   const [activeTab, setActiveTab] = useState<'products' | 'cart' | 'orders'>('products');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
 
   const ecommerceAddress = process.env.NEXT_PUBLIC_ECOMMERCE_CONTRACT_ADDRESS;
@@ -89,6 +90,7 @@ export default function CustomerPage() {
       
       if (accounts.length > 0) {
         setWalletAddress(accounts[0]);
+        setSuccess('Wallet connected!');
       }
     } catch (err) {
       console.error('Error connecting wallet:', err);
@@ -101,13 +103,14 @@ export default function CustomerPage() {
 
     setIsLoading(true);
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum || (await import('ethers').then(m => m.BrowserProvider.prototype)));
+      const provider = new ethers.JsonRpcProvider(process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545');
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, provider);
       
       const allProducts = await contract.getAllProducts();
       setProducts(allProducts.filter((p: Product) => p.isActive));
     } catch (err) {
       console.error('Error loading products:', err);
+      setError('Failed to load products');
     } finally {
       setIsLoading(false);
     }
@@ -158,6 +161,7 @@ export default function CustomerPage() {
 
     setIsLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
       const provider = new ethers.BrowserProvider(window.ethereum!);
@@ -167,6 +171,7 @@ export default function CustomerPage() {
       const tx = await contract.addToCart(productId, qty);
       await tx.wait();
 
+      setSuccess('Item added to cart!');
       loadCart();
       setQuantities({ ...quantities, [productId.toString()]: 1 });
     } catch (err) {
@@ -180,18 +185,11 @@ export default function CustomerPage() {
   const checkout = async () => {
     if (!walletAddress || !ecommerceAddress || cart.length === 0) return;
 
-    // Group items by company
-    const itemsByCompany: Record<string, CartItem[]> = {};
-    for (const item of cart) {
-      const product = products.find(p => p.productId.toString() === item.productId.toString());
-      if (product) {
-        const companyId = product.companyId.toString();
-        if (!itemsByCompany[companyId]) {
-          itemsByCompany[companyId] = [];
-        }
-        itemsByCompany[companyId].push(item);
-      }
-    }
+    // Group items by company - in our simplified store, we checkout one by one
+    const cartItem = cart[0];
+    const product = products.find(p => p.productId.toString() === cartItem.productId.toString());
+    
+    if (!product) return;
 
     setIsLoading(true);
     setError(null);
@@ -201,24 +199,23 @@ export default function CustomerPage() {
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
 
-      // Create invoice for each company
-      for (const companyId of Object.keys(itemsByCompany)) {
-        const tx = await contract.createInvoice(companyId);
-        const receipt = await tx.wait();
-        
-        // Parse invoice ID from events (simplified)
-        const invoiceId = receipt.logs[0]?.topics[1] ? BigInt(receipt.logs[0].topics[1]) : BigInt(0);
-        
-        // Redirect to payment gateway
-        const paymentUrl = new URL(paymentGatewayUrl);
-        paymentUrl.searchParams.set('merchant_address', walletAddress);
-        paymentUrl.searchParams.set('invoice_id', invoiceId.toString());
-        paymentUrl.searchParams.set('amount', cartTotal.toString());
-        paymentUrl.searchParams.set('redirect', `${window.location.origin}/orders`);
-        
-        window.location.href = paymentUrl.toString();
-        return;
-      }
+      const tx = await contract.createInvoice(product.companyId);
+      const receipt = await tx.wait();
+      
+      // Parse invoice ID from log
+      const invoiceId = receipt.logs[0]?.topics[1] ? BigInt(receipt.logs[0].topics[1]) : BigInt(0);
+      
+      // Get the invoice to find out total for this company
+      const invoice = await contract.getInvoice(invoiceId);
+
+      // Redirect to payment gateway
+      const paymentUrl = new URL(paymentGatewayUrl);
+      paymentUrl.searchParams.set('merchant_address', invoice.customerAddress); // Store wallet = customer address
+      paymentUrl.searchParams.set('invoice_id', invoiceId.toString());
+      paymentUrl.searchParams.set('amount', invoice.totalAmount.toString());
+      paymentUrl.searchParams.set('redirect', `${window.location.origin}`);
+      
+      window.location.href = paymentUrl.toString();
     } catch (err) {
       console.error('Error during checkout:', err);
       setError(err instanceof Error ? err.message : 'Checkout failed');
@@ -236,37 +233,55 @@ export default function CustomerPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">E-Commerce Store</h1>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setActiveTab('products')}
-              className={`px-4 py-2 rounded-lg ${activeTab === 'products' ? 'bg-blue-600 text-white' : 'text-gray-700'}`}
-            >
-              Products
-            </button>
-            <button
-              onClick={() => setActiveTab('cart')}
-              className={`px-4 py-2 rounded-lg ${activeTab === 'cart' ? 'bg-blue-600 text-white' : 'text-gray-700'}`}
-            >
-              Cart ({cart.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`px-4 py-2 rounded-lg ${activeTab === 'orders' ? 'bg-blue-600 text-white' : 'text-gray-700'}`}
-            >
-              Orders
-            </button>
+    <div className="min-h-screen bg-[#0a0a0a] text-[#ededed] font-sans">
+      <header className="border-b border-white/10 bg-black/50 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-[1800px] mx-auto px-10 py-6 flex justify-between items-center bg-black/40 backdrop-blur-xl border-x border-white/5 shadow-2xl">
+          <div className="flex items-center gap-12">
+            <h1 className="text-xl font-black text-white cursor-pointer tracking-[0.2em] uppercase" onClick={() => setActiveTab('products')}>
+              E-COMMERCE STORE
+            </h1>
+            <nav className="hidden md:flex gap-8 text-[10px] font-black uppercase tracking-[0.1em]">
+              {[
+                { id: 'products', label: 'Marketplace' },
+                { id: 'cart', label: `Cart (${cart.length})` },
+                { id: 'orders', label: 'History' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`transition-all hover:text-white relative py-2 ${
+                    activeTab === tab.id ? 'text-white' : 'text-gray-500'
+                  }`}
+                >
+                  {tab.label}
+                  {activeTab === tab.id && (
+                    <span className="absolute bottom-0 left-0 w-full h-[2px] bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.6)]"></span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          </div>
+          <div className="flex items-center gap-6">
             {walletAddress ? (
-              <span className="font-mono text-sm bg-gray-100 px-3 py-2 rounded-lg">
-                {formatAddress(walletAddress)}
-              </span>
+              <div className="flex items-center gap-4">
+                <div className="wallet-box">
+                  <div className="text-right hidden sm:block">
+                    <p className="text-[10px] text-gray-500 font-mono tracking-tighter">{formatAddress(walletAddress)}</p>
+                    <p className="text-[9px] text-blue-400 uppercase tracking-widest font-black mt-1">SECURED</p>
+                  </div>
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] animate-pulse"></div>
+                </div>
+                <button
+                  onClick={() => setWalletAddress(null)}
+                  className="px-4 py-2 border border-red-500/20 bg-red-500/5 hover:bg-red-500 hover:text-white text-red-500 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all"
+                >
+                  Disconnect
+                </button>
+              </div>
             ) : (
               <button
                 onClick={connectWallet}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="px-8 py-3 bg-white text-black text-[10px] font-black uppercase tracking-widest rounded-full transition-all hover:scale-105"
               >
                 Connect Wallet
               </button>
@@ -275,44 +290,87 @@ export default function CustomerPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="centered-layout py-32 min-h-screen">
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-600">{error}</p>
+          <div className="mb-12 p-6 bg-red-500/10 border border-red-500/20 rounded-3xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 overflow-hidden relative max-w-2xl mx-auto backdrop-blur-xl">
+            <div className="absolute left-0 top-0 bottom-0 w-2 bg-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)]"></div>
+            <p className="text-red-400 text-base font-bold tracking-tight">{error}</p>
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-12 p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-3xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 overflow-hidden relative max-w-2xl mx-auto backdrop-blur-xl">
+            <div className="absolute left-0 top-0 bottom-0 w-2 bg-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.5)]"></div>
+            <p className="text-emerald-400 text-base font-bold tracking-tight">{success}</p>
           </div>
         )}
 
         {activeTab === 'products' && (
-          <div>
-            <h2 className="text-xl font-semibold mb-4">Products</h2>
-            {isLoading ? (
-              <div className="text-center py-8">Loading...</div>
+          <div className="animate-in fade-in duration-500 w-full">
+            <div className="flex-centered text-center mb-32 w-full pt-12">
+              <h2 className="text-hero">MARKETPLACE</h2>
+              <div className="max-w-4xl px-4">
+                <p className="text-gray-400 text-2xl font-medium leading-relaxed tracking-tight max-w-3xl mx-auto">
+                  Verified assets from our global merchant network. <br/>
+                  <span className="text-white/60 font-light mt-2 block">Authenticity and quality guaranteed on-chain.</span>
+                </p>
+              </div>
+              <div className="mt-16 px-10 py-4 bg-white/[0.03] border border-white/10 rounded-full text-[10px] font-black text-gray-500 uppercase tracking-[0.3em] leading-none shadow-2xl backdrop-blur-md">
+                {products.length} Protocol Nodes Active
+              </div>
+            </div>
+
+            {isLoading && products.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 gap-4">
+                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-gray-500 font-medium">Loading marketplace...</p>
+              </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-12 w-full place-items-center">
                 {products.map((product) => (
-                  <div key={product.productId.toString()} className="bg-white rounded-lg shadow p-4">
-                    <h3 className="font-semibold text-lg">{product.name}</h3>
-                    <p className="text-gray-600 text-sm mt-1">{product.description}</p>
-                    <div className="mt-4 flex justify-between items-center">
-                      <span className="text-xl font-bold text-blue-600">€{formatPrice(product.price)}</span>
-                      <span className="text-sm text-gray-500">Stock: {product.stock.toString()}</span>
+                  <div 
+                    key={product.productId.toString()} 
+                    className="group bg-[#111] border border-white/10 rounded-[2.5rem] p-8 hover:bg-[#151515] hover:border-white/20 transition-all duration-500 hover:-translate-y-2 relative overflow-hidden flex flex-col shadow-2xl w-full max-w-[22rem]"
+                  >
+                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-blue-600/10 blur-[80px] group-hover:bg-blue-600/20 transition-all duration-500"></div>
+                    <div className="flex justify-between items-start mb-10">
+                      <div className="flex flex-col gap-3">
+                        <h3 className="font-black text-3xl text-white group-hover:text-blue-400 transition-colors leading-none tracking-tight">
+                          {product.name}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-gray-700"></span>
+                          <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest leading-none">Protocol Node {product.productId.toString()}</span>
+                        </div>
+                      </div>
+                      <div className="px-3 py-1.5 bg-blue-500/10 rounded-full border border-blue-500/10 shadow-[0_0_15px_rgba(59,130,246,0.1)]">
+                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest italic">AUTHENTIC</span>
+                      </div>
                     </div>
+                    
+                    <p className="text-gray-500 text-base line-clamp-3 min-h-[5rem] mb-10 leading-relaxed font-medium">
+                      {product.description || "A premium protocol asset sourced from our verified merchant network."}
+                    </p>
+                    
+                    <div className="flex items-center justify-between border-t border-white/5 pt-10 mt-auto mb-10">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] text-gray-600 uppercase font-black tracking-widest leading-none mb-1">Asset Value</span>
+                        <span className="text-3xl font-black text-white tracking-tighter">€{formatPrice(product.price)}</span>
+                      </div>
+                      <div className="text-right flex flex-col gap-1">
+                        <span className="text-[10px] text-gray-600 uppercase font-black tracking-widest leading-none mb-1">Stock Level</span>
+                        <span className="text-sm text-blue-400 font-black tracking-widest">{product.stock.toString()} UNITS</span>
+                      </div>
+                    </div>
+
                     {walletAddress && (
-                      <div className="mt-4 flex gap-2">
-                        <input
-                          type="number"
-                          min="1"
-                          max={product.stock.toString()}
-                          value={quantities[product.productId.toString()] || 1}
-                          onChange={(e) => setQuantities({ ...quantities, [product.productId.toString()]: parseInt(e.target.value) || 1 })}
-                          className="w-20 px-2 py-1 border rounded"
-                        />
+                      <div className="flex gap-4">
                         <button
                           onClick={() => addToCart(product.productId)}
                           disabled={isLoading}
-                          className="flex-1 bg-blue-600 text-white py-1 px-3 rounded hover:bg-blue-700 disabled:bg-gray-400"
+                          className="flex-1 bg-white hover:bg-gray-200 text-black text-[10px] font-black uppercase tracking-[0.2em] py-4 rounded-2xl transition-all shadow-xl active:scale-[0.98] disabled:bg-gray-800 disabled:text-gray-600"
                         >
-                          Add to Cart
+                          {isLoading ? 'Processing' : 'Add To Cart'}
                         </button>
                       </div>
                     )}
@@ -320,81 +378,118 @@ export default function CustomerPage() {
                 ))}
               </div>
             )}
+
+            {!isLoading && products.length === 0 && (
+              <div className="w-full text-center py-48 border border-dashed border-white/10 rounded-[4rem] bg-white/[0.01] shadow-inner">
+                <p className="text-gray-700 text-xl italic font-bold tracking-widest">Protocol Inventory Empty</p>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'cart' && (
-          <div>
-            <h2 className="text-xl font-semibold mb-4">Shopping Cart</h2>
+          <div className="animate-in fade-in max-w-4xl mx-auto w-full">
+            <h2 className="text-4xl font-bold mb-10 tracking-tight">Shopping Cart</h2>
             {cart.length === 0 ? (
-              <p className="text-gray-600">Your cart is empty</p>
-            ) : (
-              <div className="bg-white rounded-lg shadow p-6">
-                <table className="min-w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2">Product</th>
-                      <th className="text-right py-2">Quantity</th>
-                      <th className="text-right py-2">Price</th>
-                      <th className="text-right py-2">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cart.map((item) => {
-                      const product = products.find(p => p.productId.toString() === item.productId.toString());
-                      return (
-                        <tr key={item.productId.toString()} className="border-b">
-                          <td className="py-3">{product?.name || 'Unknown'}</td>
-                          <td className="text-right py-3">{item.quantity.toString()}</td>
-                          <td className="text-right py-3">€{formatPrice(item.priceAtAdd)}</td>
-                          <td className="text-right py-3">€{formatPrice(item.priceAtAdd * item.quantity)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={3} className="text-right py-4 font-semibold">Total:</td>
-                      <td className="text-right py-4 font-bold text-xl">€{formatPrice(cartTotal)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-                <button
-                  onClick={checkout}
-                  disabled={isLoading || !walletAddress}
-                  className="w-full mt-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+              <div className="text-center py-20 bg-white/5 border border-dashed border-white/10 rounded-2xl">
+                <p className="text-gray-500 mb-6 font-medium">Your cart is empty.</p>
+                <button 
+                  onClick={() => setActiveTab('products')}
+                  className="text-blue-400 hover:text-blue-300 font-bold text-sm"
                 >
-                  {isLoading ? 'Processing...' : walletAddress ? 'Checkout' : 'Connect Wallet to Checkout'}
+                  Return to Marketplace
                 </button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-sm shadow-xl">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-white/10 bg-white/[0.04]">
+                        <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Product</th>
+                        <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Qty</th>
+                        <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Price</th>
+                        <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {cart.map((item) => {
+                        const product = products.find(p => p.productId.toString() === item.productId.toString());
+                        return (
+                          <tr key={item.productId.toString()} className="hover:bg-white/[0.01]">
+                            <td className="px-8 py-5">
+                              <p className="font-bold text-white">{product?.name || 'Protocol Asset'}</p>
+                              <p className="text-[10px] text-gray-600 font-mono">#{item.productId.toString()}</p>
+                            </td>
+                            <td className="px-8 py-5 text-right font-mono text-sm text-gray-400">{item.quantity.toString()}</td>
+                            <td className="px-8 py-5 text-right font-mono text-sm text-gray-400">€{formatPrice(item.priceAtAdd)}</td>
+                            <td className="px-8 py-5 text-right font-mono font-bold text-white text-lg">€{formatPrice(item.priceAtAdd * item.quantity)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-white/[0.05]">
+                        <td colSpan={3} className="px-8 py-8 text-right border-t border-white/10">
+                          <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Grand Total</span>
+                        </td>
+                        <td className="px-8 py-8 text-right border-t border-white/10">
+                          <span className="text-3xl font-bold text-white italic">€{formatPrice(cartTotal)}</span>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <button
+                    onClick={checkout}
+                    disabled={isLoading || !walletAddress}
+                    className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-xl shadow-blue-600/20 active:scale-[0.98] disabled:bg-gray-800 disabled:text-gray-600"
+                  >
+                    {isLoading ? 'Processing...' : walletAddress ? 'Proceed to Checkout' : 'Connect Wallet to Checkout'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
         )}
 
         {activeTab === 'orders' && (
-          <div>
-            <h2 className="text-xl font-semibold mb-4">My Orders</h2>
+          <div className="animate-in fade-in w-full">
+            <h2 className="text-4xl font-bold mb-10 tracking-tight">Order History</h2>
             {invoices.length === 0 ? (
-              <p className="text-gray-600">No orders yet</p>
+              <div className="text-center py-20 bg-white/5 border border-dashed border-white/10 rounded-2xl">
+                <p className="text-gray-500 italic">No orders found.</p>
+              </div>
             ) : (
-              <div className="bg-white rounded-lg shadow overflow-hidden">
-                <table className="min-w-full">
+              <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden shadow-xl">
+                <table className="w-full text-left">
                   <thead>
-                    <tr className="bg-gray-50">
-                      <th className="text-left px-6 py-3">Order #</th>
-                      <th className="text-right px-6 py-3">Amount</th>
-                      <th className="text-right px-6 py-3">Date</th>
-                      <th className="text-right px-6 py-3">Status</th>
+                    <tr className="border-b border-white/10 bg-white/[0.04]">
+                      <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Order #</th>
+                      <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Subtotal</th>
+                      <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Date</th>
+                      <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Status</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-white/5">
                     {invoices.map((invoice) => (
-                      <tr key={invoice.invoiceId.toString()} className="border-t">
-                        <td className="px-6 py-4">{invoice.invoiceNumber}</td>
-                        <td className="text-right px-6 py-4">€{formatPrice(invoice.totalAmount)}</td>
-                        <td className="text-right px-6 py-4">{new Date(Number(invoice.timestamp) * 1000).toLocaleDateString()}</td>
-                        <td className="text-right px-6 py-4">
-                          <span className={`px-2 py-1 text-xs rounded-full ${invoice.isPaid ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                      <tr key={invoice.invoiceId.toString()} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="px-8 py-6">
+                          <p className="font-bold text-white text-base">{invoice.invoiceNumber || "INV"}</p>
+                          <p className="text-[10px] text-gray-500 font-mono mt-1">ID: {invoice.invoiceId.toString()}</p>
+                        </td>
+                        <td className="px-8 py-6 text-right font-mono text-base text-gray-300">€{formatPrice(invoice.totalAmount)}</td>
+                        <td className="px-8 py-6 text-right">
+                          <p className="text-sm text-gray-400">
+                            {new Date(Number(invoice.timestamp) * 1000).toLocaleDateString()}
+                          </p>
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                          <span className={`px-3 py-1 text-[10px] font-black uppercase rounded-full ${
+                            invoice.isPaid ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                          }`}>
                             {invoice.isPaid ? 'Paid' : 'Pending'}
                           </span>
                         </td>
