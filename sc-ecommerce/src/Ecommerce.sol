@@ -169,7 +169,7 @@ contract Ecommerce is Ownable {
     /// @notice Register a new company
     function registerCompany(string memory name, string memory taxId) external returns (uint256) {
         require(bytes(name).length > 0, "Company name cannot be empty");
-        require(ownerToCompanyId[msg.sender] == 0, "Owner already has a company");
+        // require(ownerToCompanyId[msg.sender] == 0, "Owner already has a company");
 
         companyCount++;
         uint256 newCompanyId = companyCount;
