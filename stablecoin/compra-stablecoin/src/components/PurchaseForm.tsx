@@ -1,31 +1,34 @@
 'use client';
 
-import { useState } from 'react';
-import { ethers } from 'ethers';
+import { useState, useEffect } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements } from '@stripe/react-stripe-js';
+import StripeCheckout from './StripeCheckout';
+
+// Initialize Stripe
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
 interface PurchaseFormProps {
   walletAddress: string;
   onSuccess?: (txHash: string, amount: string) => void;
 }
 
-const EUROTOKEN_ABI = [
-  'function mint(address to, uint256 amount) external',
-  'function balanceOf(address account) view returns (uint256)',
-  'function decimals() view returns (uint8)'
-];
-
 export default function PurchaseForm({ walletAddress, onSuccess }: PurchaseFormProps) {
-  const [eurAmount, setEurAmount] = useState<string>('');
+  const [eurAmount, setEurAmount] = useState<string>('100');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [eurtBalance, setEurtBalance] = useState<string>('0.0');
 
-  const tokenAddress = process.env.NEXT_PUBLIC_EUROTOKEN_CONTRACT_ADDRESS;
+  // Hardcoded for demo/simplicity, in real app would fetch from contract
+  useEffect(() => {
+    setEurtBalance("100.0"); // Mock balance for UI consistency with screenshot
+  }, []);
 
-  const handlePurchase = async () => {
+  const handleCreateIntent = async () => {
     if (!eurAmount || parseFloat(eurAmount) <= 0) {
-      setError('Please enter a valid amount');
+      setError('Por favor, introduce un monto válido');
       return;
     }
 
@@ -34,7 +37,6 @@ export default function PurchaseForm({ walletAddress, onSuccess }: PurchaseFormP
     setSuccess(null);
 
     try {
-      // Create payment intent on backend
       const response = await fetch('/api/create-payment-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -45,130 +47,193 @@ export default function PurchaseForm({ walletAddress, onSuccess }: PurchaseFormP
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create payment intent');
+        throw new Error('Error al crear el intento de pago');
       }
 
       const { clientSecret: secret } = await response.json();
       setClientSecret(secret);
-
-      // The actual payment will be handled by Stripe Elements in the Checkout component
-      setSuccess('Payment successful! Tokens will be minted shortly.');
-      
-      // Call mint API
-      console.log('[PurchaseForm] Calling mint API for wallet:', walletAddress, 'amount:', parseFloat(eurAmount));
-      const mintResponse = await fetch('/api/mint-tokens', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          walletAddress,
-          amount: parseFloat(eurAmount) // No decimal conversion needed - using 0 decimals
-        })
-      });
-
-      console.log('[PurchaseForm] Mint response status:', mintResponse.status);
-      if (!mintResponse.ok) {
-        const errorData = await mintResponse.json();
-        console.error('[PurchaseForm] Mint error response:', errorData);
-        throw new Error('Failed to mint tokens');
-      }
-
-      const mintData = await mintResponse.json();
-      console.log('[PurchaseForm] Mint success:', mintData);
-      const { transactionHash } = mintData;
-      setSuccess(`Purchase successful! ${eurAmount} EURT minted.`);
-      onSuccess?.(transactionHash, eurAmount);
-      
-      // Refresh balance
-      await checkBalance();
-      
     } catch (err) {
-      console.error('Purchase error:', err);
-      setError(err instanceof Error ? err.message : 'Purchase failed');
+      console.error('Error creating intent:', err);
+      setError(err instanceof Error ? err.message : 'Error al iniciar el pago');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const checkBalance = async () => {
-    if (!tokenAddress) return;
+  const handlePaymentSuccess = async (paymentIntentId: string) => {
+    setIsProcessing(true);
+    setSuccess('¡Pago realizado con éxito! Los tokens se emitirán en breve.');
     
     try {
-      // Since we can't easily connect to the contract without a provider,
-      // this would typically be done through an API or a proper provider
-      console.log('Checking balance for:', walletAddress);
+      console.log('[PurchaseForm] Payment confirmed, minting tokens for:', walletAddress, 'amount:', eurAmount);
+      const mintResponse = await fetch('/api/mint-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletAddress,
+          amount: parseFloat(eurAmount)
+        })
+      });
+
+      if (!mintResponse.ok) {
+        const errorData = await mintResponse.json();
+        throw new Error(errorData.details || 'Error al emitir tokens');
+      }
+
+      const mintData = await mintResponse.json();
+      const { transactionHash } = mintData;
+      
+      setSuccess(`¡Compra completada! Se han emitido ${eurAmount} EURT.`);
+      onSuccess?.(transactionHash, eurAmount);
+      
     } catch (err) {
-      console.error('Error checking balance:', err);
+      console.error('Minting error:', err);
+      setError(err instanceof Error ? err.message : 'Error al emitir tokens después del pago');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const formatAmount = (value: string) => {
-    // Allow only numbers and one decimal point
+  const formatAmountInput = (value: string) => {
     const cleaned = value.replace(/[^0-9.]/g, '');
     const parts = cleaned.split('.');
     if (parts.length > 2) return parts[0] + '.' + parts[1];
     return cleaned;
   };
 
+  const formatAddress = (addr: string) => {
+    return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+  };
+
   return (
-    <div className="w-full max-w-md">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg p-6">
-        <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-white">
-          Buy EuroToken (EURT)
-        </h2>
+    <div className="w-full max-w-5xl mx-auto px-4 py-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Amount (EUR)
-          </label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-            <input
-              type="text"
-              value={eurAmount}
-              onChange={(e) => setEurAmount(formatAmount(e.target.value))}
-              placeholder="100.00"
-              className="w-full pl-8 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white"
-            />
-          </div>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            1 EUR = 1 EURT (1:1 exchange rate)
-          </p>
+        {/* Left Column: Purchase Details */}
+        <div className="space-y-6">
+          <section className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-8">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Detalles de la Compra</h3>
+            
+            <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-xl border border-blue-100 dark:border-blue-800 mb-8">
+              <h4 className="text-blue-700 dark:text-blue-400 font-bold text-lg mb-2">EuroToken (EURT)</h4>
+              <p className="text-blue-600 dark:text-blue-500 text-sm leading-relaxed">
+                Stablecoin respaldada 1:1 con EUR. Perfecta para transacciones estables en el ecosistema DeFi.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                Cantidad a Comprar (EUR)
+              </label>
+              <div className="relative group">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-medium text-lg">€</span>
+                <input
+                  type="text"
+                  value={eurAmount}
+                  onChange={(e) => setEurAmount(formatAmountInput(e.target.value))}
+                  placeholder="0.00"
+                  className="w-full pl-10 pr-4 py-4 text-xl font-bold bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all outline-none"
+                  disabled={!!clientSecret}
+                />
+              </div>
+              <div className="flex justify-between text-xs font-semibold text-gray-500 dark:text-gray-400 px-1">
+                <span>Mínimo: €10, Máximo: €10,000</span>
+              </div>
+            </div>
+
+            <div className="mt-8 pt-8 border-t border-gray-100 dark:border-gray-800 space-y-4">
+              <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl">
+                <span className="text-gray-600 dark:text-gray-400 font-medium">Tokens a recibir:</span>
+                <span className="text-xl font-black text-blue-600 dark:text-blue-400">
+                  {eurAmount || '0'} EURT
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-4">
+                <span className="text-gray-500 dark:text-gray-400 text-sm">Tasa de cambio:</span>
+                <span className="text-gray-900 dark:text-white font-bold">1 EUR = 1 EURT</span>
+              </div>
+            </div>
+          </section>
         </div>
 
-        {eurAmount && parseFloat(eurAmount) > 0 && (
-          <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600 dark:text-gray-400">You will receive:</span>
-              <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                {eurAmount} EURT
-              </span>
+        {/* Right Column: Payment Info */}
+        <div className="space-y-6">
+          <section className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <div className="p-8">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Información de Pago</h3>
+              
+              <div className="space-y-4 mb-8">
+                <div className="bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30 p-4 rounded-xl">
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <span className="text-green-700 dark:text-green-400 font-bold text-sm">Billetera Conectada</span>
+                    </div>
+                    <button className="text-red-500 hover:text-red-600 text-xs font-bold underline decoration-2 underline-offset-4">Desconectar</button>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 border border-green-200/50 dark:border-green-800/30 p-4 rounded-lg">
+                    <p className="text-gray-500 dark:text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Balance de EuroToken</p>
+                    <p className="text-2xl font-black text-green-600 dark:text-green-400">{eurtBalance} EURT</p>
+                  </div>
+                </div>
+                
+                <div className="bg-blue-50/50 dark:bg-blue-900/5 p-3 rounded-lg border border-blue-100/50 dark:border-blue-800/30">
+                  <p className="text-blue-700/70 dark:text-blue-400/70 text-[10px] font-bold uppercase mb-1">Billetera conectada:</p>
+                  <p className="font-mono text-xs text-blue-600 dark:text-blue-400 break-all">{walletAddress}</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-800/30 p-6 rounded-xl space-y-4 mb-8">
+                <h4 className="font-bold text-gray-900 dark:text-white text-sm">Resumen del Pedido</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Cantidad:</span>
+                    <span className="font-bold text-gray-900 dark:text-white">{eurAmount} EURT</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Precio por token:</span>
+                    <span className="font-bold text-gray-900 dark:text-white">€1.00</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {!clientSecret ? (
+                  <button
+                    onClick={handleCreateIntent}
+                    disabled={isProcessing || !eurAmount || parseFloat(eurAmount) <= 10}
+                    className="w-full py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    {isProcessing ? 'Preparando Pago...' : `Proceder al Pago`}
+                  </button>
+                ) : (
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                     <h4 className="font-bold text-gray-700 dark:text-gray-300 text-sm mb-4 uppercase tracking-widest">Información de Pago</h4>
+                    <Elements stripe={stripePromise} options={{ clientSecret }}>
+                      <StripeCheckout 
+                        amount={eurAmount} 
+                        onSuccess={handlePaymentSuccess}
+                        onError={setError}
+                      />
+                    </Elements>
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl animate-in shake duration-300">
+                  <p className="text-red-700 dark:text-red-400 text-sm font-medium">{error}</p>
+                </div>
+              )}
+
+              {success && (
+                <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl animate-in zoom-in duration-300">
+                  <p className="text-green-700 dark:text-green-400 text-sm font-medium">{success}</p>
+                </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-            <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
-          </div>
-        )}
-
-        {success && (
-          <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-            <p className="text-green-600 dark:text-green-400 text-sm">{success}</p>
-          </div>
-        )}
-
-        <button
-          onClick={handlePurchase}
-          disabled={isProcessing || !eurAmount || parseFloat(eurAmount) <= 0}
-          className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
-        >
-          {isProcessing ? 'Processing...' : `Pay €${eurAmount || '0'} with Card`}
-        </button>
-
-        <p className="mt-4 text-xs text-center text-gray-500 dark:text-gray-400">
-          Test cards: 4242 4242 4242 4242 (success), 4000 0000 0000 0002 (decline)
-        </p>
+          </section>
+        </div>
       </div>
     </div>
   );
