@@ -27,53 +27,53 @@ contract EuroTokenTest is Test {
     function test_Deployment() public view {
         assertEq(euroToken.name(), "EuroToken");
         assertEq(euroToken.symbol(), "EURT");
-        assertEq(euroToken.decimals(), 6);
+        assertEq(euroToken.decimals(), 0);
         assertEq(euroToken.owner(), owner);
     }
 
     /// @notice Test initial supply is minted to owner
     function test_InitialSupply() public view {
-        uint256 expectedSupply = 1_000_000 * 10**6;
+        uint256 expectedSupply = 1_000_000;
         assertEq(euroToken.totalSupply(), expectedSupply);
         assertEq(euroToken.balanceOf(owner), expectedSupply);
     }
 
     /// @notice Test minting by owner succeeds
     function test_MintByOwner() public {
-        uint256 mintAmount = 1000 * 10**6; // 1000 EURT
+        uint256 mintAmount = 1000; // 1000 EURT
         
         euroToken.mint(user1, mintAmount);
         
         assertEq(euroToken.balanceOf(user1), mintAmount);
-        assertEq(euroToken.totalSupply(), 1_000_000 * 10**6 + mintAmount);
+        assertEq(euroToken.totalSupply(), 1_000_000 + mintAmount);
     }
 
     /// @notice Test minting by non-owner fails
     function test_MintByNonOwner() public {
         vm.prank(user1);
         vm.expectRevert();
-        euroToken.mint(user2, 1000 * 10**6);
+        euroToken.mint(user2, 1000);
     }
 
     /// @notice Test minting to zero address fails
     function test_MintToZeroAddress() public {
         vm.expectRevert("Cannot mint to zero address");
-        euroToken.mint(address(0), 1000 * 10**6);
+        euroToken.mint(address(0), 1000);
     }
 
     /// @notice Test transfer between accounts
     function test_Transfer() public {
-        uint256 transferAmount = 500 * 10**6; // 500 EURT
+        uint256 transferAmount = 500; // 500 EURT
         
         euroToken.transfer(user1, transferAmount);
         
         assertEq(euroToken.balanceOf(user1), transferAmount);
-        assertEq(euroToken.balanceOf(owner), 1_000_000 * 10**6 - transferAmount);
+        assertEq(euroToken.balanceOf(owner), 1_000_000 - transferAmount);
     }
 
     /// @notice Test transfer from owner to user, then user to user2
     function test_TransferFrom() public {
-        uint256 amount = 300 * 10**6;
+        uint256 amount = 300;
         
         // Transfer from owner to user1
         euroToken.transfer(user1, amount);
@@ -84,7 +84,7 @@ contract EuroTokenTest is Test {
 
     /// @notice Test burn by token holder
     function test_Burn() public {
-        uint256 burnAmount = 100 * 10**6;
+        uint256 burnAmount = 100;
         uint256 initialBalance = euroToken.balanceOf(owner);
         uint256 initialSupply = euroToken.totalSupply();
         
@@ -96,26 +96,24 @@ contract EuroTokenTest is Test {
 
     /// @notice Test decimal precision
     function test_DecimalPrecision() public view {
-        // 1 EUR = 1 * 10^6 (cents)
-        uint256 oneEuro = 1 * 10**6;
+        // 1 EUR = 1 token
+        uint256 oneEuro = 1;
         
-        assertEq(euroToken.decimals(), 6);
-        
-        // Verify that 1 EUR equals 1,000,000 smallest units
-        assertEq(oneEuro, 1_000_000);
+        assertEq(euroToken.decimals(), 0);
+        assertEq(oneEuro, 1);
     }
 
     /// @notice Test total supply calculation with decimals
     function test_TotalSupplyCalculation() public view {
         uint256 totalSupply = euroToken.totalSupply();
-        uint256 expectedEuros = totalSupply / 10**6;
+        uint256 expectedEuros = totalSupply;
         
         assertEq(expectedEuros, 1_000_000); // 1 million euros
     }
 
     /// @notice Test multiple transfers
     function test_MultipleTransfers() public {
-        uint256 amount = 100 * 10**6;
+        uint256 amount = 100;
         
         // Transfer to user1
         euroToken.transfer(user1, amount);
@@ -126,12 +124,12 @@ contract EuroTokenTest is Test {
         assertEq(euroToken.balanceOf(user2), amount);
         
         // Owner should have initial - 2*amount
-        assertEq(euroToken.balanceOf(owner), 1_000_000 * 10**6 - 2 * amount);
+        assertEq(euroToken.balanceOf(owner), 1_000_000 - 2 * amount);
     }
 
     /// @notice Test approve and transferFrom
     function test_ApproveAndTransferFrom() public {
-        uint256 amount = 200 * 10**6;
+        uint256 amount = 200;
         
         // Owner approves user1 to spend tokens
         euroToken.approve(user1, amount);
@@ -146,14 +144,14 @@ contract EuroTokenTest is Test {
     /// @notice Test events are emitted on mint
     function test_MintEvent() public {
         vm.expectEmit(true, true, true, true);
-        emit IERC20.Transfer(address(0), user1, 1000 * 10**6);
-        euroToken.mint(user1, 1000 * 10**6);
+        emit IERC20.Transfer(address(0), user1, 1000);
+        euroToken.mint(user1, 1000);
     }
 
     /// @notice Test events are emitted on burn
     function test_BurnEvent() public {
         vm.expectEmit(true, true, true, true);
-        emit IERC20.Transfer(owner, address(0), 100 * 10**6);
-        euroToken.burn(100 * 10**6);
+        emit IERC20.Transfer(owner, address(0), 100);
+        euroToken.burn(100);
     }
 }
