@@ -38,6 +38,24 @@ function PaymentContent() {
       return;
     }
     setStatus('ready');
+
+    // Auto-connect wallet
+    const checkConnection = async () => {
+      if (window.ethereum) {
+        try {
+          const provider = new ethers.BrowserProvider(window.ethereum as any);
+          const accounts = await provider.listAccounts();
+          if (accounts.length > 0) {
+            setWalletAddress(accounts[0].address);
+          } else {
+            connectWallet();
+          }
+        } catch (err) {
+          console.error('Auto-connect error:', err);
+        }
+      }
+    };
+    checkConnection();
   }, [merchantAddress, amount]);
   const connectWallet = async () => {
     if (!window.ethereum) {
@@ -77,7 +95,8 @@ function PaymentContent() {
       }
 
       // Get amount in smallest units (0 decimals for EURT)
-      const amountWei = ethers.parseUnits(amount, 0);
+      const numericAmount = Math.floor(Number(amount));
+      const amountWei = ethers.parseUnits(numericAmount.toString(), 0);
 
       // Check balance
       const tokenContract = new ethers.Contract(euroTokenAddress, ERC20_ABI, provider);
@@ -130,8 +149,9 @@ function PaymentContent() {
 
   const formatAmount = (amt: string) => {
     try {
-      // EURT has 0 decimals
-      return ethers.formatUnits(amt, 0);
+      const num = Number(amt);
+      if (isNaN(num)) return amt;
+      return num.toFixed(2);
     } catch {
       return amt;
     }
@@ -190,7 +210,7 @@ function PaymentContent() {
             </div>
             <div className="flex justify-between items-center py-4">
               <span className="text-lg font-bold text-gray-900">Amount</span>
-              <span className="text-2xl font-black text-blue-700">€{formatAmount(amount)}</span>
+              <span className="text-2xl font-black text-blue-700">{formatAmount(amount)} EURT</span>
             </div>
           </div>
 
@@ -215,7 +235,7 @@ function PaymentContent() {
                     disabled={status === 'processing'}
                     className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
                   >
-                    {status === 'processing' ? 'Processing...' : `Pay €${formatAmount(amount)}`}
+                    {status === 'processing' ? 'Processing...' : `Pay ${formatAmount(amount)} EURT`}
                   </button>
                 </div>
               )}

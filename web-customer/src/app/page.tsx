@@ -280,7 +280,9 @@ export default function CustomerPage() {
       const paymentUrl = new URL(paymentGatewayUrl);
       paymentUrl.searchParams.set('merchant_address', invoice.customerAddress); // Store wallet = customer address
       paymentUrl.searchParams.set('invoice_id', invoiceId.toString());
-      paymentUrl.searchParams.set('amount', invoice.totalAmount.toString());
+      paymentUrl.searchParams.set('invoice', invoice.invoiceNumber || `INV-${invoiceId}`);
+      paymentUrl.searchParams.set('date', new Date(Number(invoice.timestamp) * 1000).toISOString().split('T')[0]);
+      paymentUrl.searchParams.set('amount', (Number(invoice.totalAmount) / 1000000).toFixed(2));
       paymentUrl.searchParams.set('redirect', `${window.location.origin}`);
       
       window.location.href = paymentUrl.toString();
