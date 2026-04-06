@@ -61,7 +61,7 @@ export default function AdminPage() {
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [activeDashboardTab, setActiveDashboardTab] = useState<'products' | 'invoices'>('products');
+  const [activeDashboardTab, setActiveDashboardTab] = useState<'products' | 'invoices' | 'customers'>('products');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -281,6 +281,26 @@ export default function AdminPage() {
   const selectedCompany = allCompanies.find(c => c.companyId === selectedCompanyId);
   const isOwner = selectedCompany?.companyAddress.toLowerCase() === walletAddress?.toLowerCase();
 
+  const customerMap = new Map<string, { address: string; totalSpent: bigint; invoices: number; paidInvoices: number; }>();
+  let totalRevenue = 0n;
+  invoices.forEach(inv => {
+    const addr = inv.customerAddress;
+    if (!customerMap.has(addr)) {
+      customerMap.set(addr, { address: addr, totalSpent: 0n, invoices: 0, paidInvoices: 0 });
+    }
+    const stat = customerMap.get(addr)!;
+    stat.invoices += 1;
+    if (inv.isPaid) {
+      stat.paidInvoices += 1;
+      stat.totalSpent += inv.totalAmount;
+      totalRevenue += inv.totalAmount;
+    }
+  });
+  const customersList = Array.from(customerMap.values());
+  const avgPerCustomer = customersList.length > 0 ? totalRevenue / BigInt(customersList.length) : 0n;
+
+  const paidInvoicesCount = invoices.filter(i => i.isPaid).length;
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center">
@@ -497,6 +517,12 @@ export default function AdminPage() {
               >
                 Invoices ({invoices.length})
               </button>
+              <button
+                onClick={() => setActiveDashboardTab('customers')}
+                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeDashboardTab === 'customers' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
+              >
+                Customers ({customersList.length})
+              </button>
             </div>
 
             {activeDashboardTab === 'products' && (
@@ -603,8 +629,9 @@ export default function AdminPage() {
             )}
 
             {activeDashboardTab === 'invoices' && (
-              <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden animate-in fade-in">
-                <table className="w-full text-left">
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+                  <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-white/5 bg-white/[0.02]">
                       <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Invoice ID</th>
@@ -635,6 +662,89 @@ export default function AdminPage() {
                     )}
                   </tbody>
                 </table>
+                </div>
+
+                {/* Invoices Summary */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+                  <h3 className="text-lg font-bold mb-4">Summary</h3>
+                  <div className="grid grid-cols-3 gap-6">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Total Invoices</p>
+                      <p className="text-2xl font-bold">{invoices.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-emerald-500 mb-1">Paid Invoices</p>
+                      <p className="text-2xl font-bold text-emerald-400">{paidInvoicesCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Total Revenue</p>
+                      <p className="text-2xl font-bold">€{formatPrice(totalRevenue)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeDashboardTab === 'customers' && (
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-white/5 bg-white/[0.02]">
+                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-widest">Customer Address</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-widest">Total Spent</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-widest">Invoices</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-widest">Paid Invoices</th>
+                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-widest">Payment Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {customersList.map((c) => {
+                        const paymentRate = c.invoices > 0 ? Math.round((c.paidInvoices / c.invoices) * 100) : 0;
+                        return (
+                          <tr key={c.address} className="hover:bg-white/[0.01]">
+                            <td className="px-6 py-4 text-sm font-mono text-gray-500">{formatAddress(c.address)}</td>
+                            <td className="px-6 py-4 text-sm font-mono text-gray-300">€{formatPrice(c.totalSpent)}</td>
+                            <td className="px-6 py-4 text-sm text-gray-400">{c.invoices}</td>
+                            <td className="px-6 py-4 text-sm text-gray-400">{c.paidInvoices}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <div className="w-24 h-2 bg-white/10 rounded-full overflow-hidden">
+                                  <div className={`h-full ${paymentRate === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${paymentRate}%` }}></div>
+                                </div>
+                                <span className="text-xs font-bold">{paymentRate}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {customersList.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-20 text-center text-gray-600">No customers yet</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Customers Summary */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+                  <h3 className="text-lg font-bold mb-4">Summary</h3>
+                  <div className="grid grid-cols-3 gap-6">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Total Customers</p>
+                      <p className="text-2xl font-bold">{customersList.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-emerald-500 mb-1">Total Revenue</p>
+                      <p className="text-2xl font-bold text-emerald-400">€{formatPrice(totalRevenue)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Avg. per Customer</p>
+                      <p className="text-2xl font-bold">€{formatPrice(avgPerCustomer)}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
