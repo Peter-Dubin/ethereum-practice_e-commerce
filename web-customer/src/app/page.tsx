@@ -7,11 +7,13 @@ const ECOMMERCE_ABI = [
   'function getAllProducts() view returns (tuple(uint256 productId, uint256 companyId, string name, string description, uint256 price, uint256 stock, string ipfsImageHash, bool isActive)[])',
   'function getCompany(uint256 companyId) view returns (tuple(uint256 companyId, string name, address companyAddress, string description, bool isActive, address owner))',
   'function addToCart(uint256 productId, uint256 quantity)',
+  'function updateCartQuantity(uint256 productId, uint256 quantity)',
+  'function removeFromCart(uint256 productId)',
+  'function clearCart()',
   'function getCart() view returns (tuple(uint256 productId, uint256 quantity, uint256 priceAtAdd)[] cartItems, uint256 total)',
   'function createInvoice(uint256 companyId) returns (uint256)',
   'function getCustomerInvoices(address customer) view returns (uint256[])',
-  'function getInvoice(uint256 invoiceId) view returns (tuple(uint256 invoiceId, uint256 companyId, address customerAddress, uint256 totalAmount, uint256 timestamp, bool isPaid, bytes32 paymentTxHash, string invoiceNumber))',
-  'function clearCart()'
+  'function getInvoice(uint256 invoiceId) view returns (tuple(uint256 invoiceId, uint256 companyId, address customerAddress, uint256 totalAmount, uint256 timestamp, bool isPaid, bytes32 paymentTxHash, string invoiceNumber))'
 ];
 
 declare global {
@@ -178,6 +180,71 @@ export default function CustomerPage() {
     } catch (err) {
       console.error('Error adding to cart:', err);
       setError(err instanceof Error ? err.message : 'Failed to add to cart');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const updateQuantity = async (productId: bigint, newQuantity: number) => {
+    if (!walletAddress || !ecommerceAddress || newQuantity <= 0) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum!);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
+
+      const tx = await contract.updateCartQuantity(productId, newQuantity);
+      await tx.wait();
+      loadCart();
+    } catch (err) {
+      console.error('Error updating quantity:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update quantity');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const removeItem = async (productId: bigint) => {
+    if (!walletAddress || !ecommerceAddress) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum!);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
+
+      const tx = await contract.removeFromCart(productId);
+      await tx.wait();
+      loadCart();
+      setSuccess('Item removed from cart');
+    } catch (err) {
+      console.error('Error removing item:', err);
+      setError(err instanceof Error ? err.message : 'Failed to remove item');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClearCart = async () => {
+    if (!walletAddress || !ecommerceAddress) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum!);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(ecommerceAddress, ECOMMERCE_ABI, signer);
+
+      const tx = await contract.clearCart();
+      await tx.wait();
+      loadCart();
+      setSuccess('Cart cleared');
+    } catch (err) {
+      console.error('Error clearing cart:', err);
+      setError(err instanceof Error ? err.message : 'Failed to clear cart');
     } finally {
       setIsLoading(false);
     }
@@ -408,9 +475,10 @@ export default function CustomerPage() {
                     <thead>
                       <tr className="border-b border-white/10 bg-white/[0.04]">
                         <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Product</th>
-                        <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Qty</th>
+                        <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-center">Qty</th>
                         <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Price</th>
                         <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">Total</th>
+                        <th className="px-8 py-5 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
@@ -422,9 +490,37 @@ export default function CustomerPage() {
                               <p className="font-bold text-white">{product?.name || 'Protocol Asset'}</p>
                               <p className="text-[10px] text-gray-600 font-mono">#{item.productId.toString()}</p>
                             </td>
-                            <td className="px-8 py-5 text-right font-mono text-sm text-gray-400">{item.quantity.toString()}</td>
+                            <td className="px-8 py-5 text-center">
+                              <div className="flex items-center justify-center gap-3 bg-black/30 w-fit mx-auto px-2 py-1 rounded-xl border border-white/5">
+                                <button
+                                  onClick={() => updateQuantity(item.productId, Number(item.quantity) - 1)}
+                                  disabled={isLoading || item.quantity <= BigInt(1)}
+                                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-gray-400 transition-colors disabled:opacity-30"
+                                >
+                                  -
+                                </button>
+                                <span className="font-mono text-white min-w-[20px]">{item.quantity.toString()}</span>
+                                <button
+                                  onClick={() => updateQuantity(item.productId, Number(item.quantity) + 1)}
+                                  disabled={isLoading || (product && item.quantity >= product.stock)}
+                                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-gray-400 transition-colors disabled:opacity-30"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </td>
                             <td className="px-8 py-5 text-right font-mono text-sm text-gray-400">€{formatPrice(item.priceAtAdd)}</td>
                             <td className="px-8 py-5 text-right font-mono font-bold text-white text-lg">€{formatPrice(item.priceAtAdd * item.quantity)}</td>
+                            <td className="px-8 py-5 text-center">
+                              <button
+                                onClick={() => removeItem(item.productId)}
+                                disabled={isLoading}
+                                className="p-2 hover:bg-red-500/10 text-gray-500 hover:text-red-500 rounded-lg transition-all active:scale-95"
+                                title="Remove item"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -434,7 +530,7 @@ export default function CustomerPage() {
                         <td colSpan={3} className="px-8 py-8 text-right border-t border-white/10">
                           <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Grand Total</span>
                         </td>
-                        <td className="px-8 py-8 text-right border-t border-white/10">
+                        <td className="px-8 py-8 text-right border-t border-white/10" colSpan={2}>
                           <span className="text-3xl font-bold text-white italic">€{formatPrice(cartTotal)}</span>
                         </td>
                       </tr>
@@ -449,6 +545,13 @@ export default function CustomerPage() {
                     className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-xl shadow-blue-600/20 active:scale-[0.98] disabled:bg-gray-800 disabled:text-gray-600"
                   >
                     {isLoading ? 'Processing...' : walletAddress ? 'Proceed to Checkout' : 'Connect Wallet to Checkout'}
+                  </button>
+                  <button
+                    onClick={handleClearCart}
+                    disabled={isLoading || !walletAddress}
+                    className="w-full py-4 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white font-bold rounded-xl transition-all border border-white/10 active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {isLoading ? 'Processing...' : 'Clear Cart'}
                   </button>
                 </div>
               </div>
