@@ -2,6 +2,10 @@
 
 Welcome to the comprehensive Web3 E-Commerce platform. This ecosystem brings together smart contract-based transaction handling, merchant administration, customer storefronts, a payment gateway, and a stablecoin acquisition service to create a seamless crypto-shopping experience.
 
+## Watch the full Demo
+
+- **Peter-Dubin_Ethereum-practice_Ecommerce**: https://drive.google.com/file/d/1vKo82yO8E9vaxd6GHlk8BPnYjpSx9Lyb/view?usp=sharing
+
 ## System Architecture
 
 The project is structured into smart contract environments and specific frontend services.
